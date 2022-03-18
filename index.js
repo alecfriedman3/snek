@@ -24,6 +24,9 @@ process.stdin.on('keypress', (...args) => {
         case 'right':
             currentDirection = name;
             break;
+        case 'p':
+            paused = !paused;
+            break;
         default:
             break;
     }
@@ -33,13 +36,14 @@ const red = (s) => `\u001b[31m${s}\u001b[37m`
 const blue = (s) => `\u001b[34m${s}\u001b[37m`
 const green = (s) => `\u001b[32m${s}\u001b[37m`
 const cyan = (s) => `\u001b[36m${s}\u001b[37m`
+const yellow = (s) => `\u001b[33m${s}\u001b[37m`
 
 // const TICK = 25;
 const TICK = 50;
 // const TICK = 100;
 const size = [process.stdout.rows - 3, Math.floor((process.stdout.columns - 3) / 2)]
 
-const renderBoard = (snake, food, x, y, newFood, gameOver) => {
+const getBoardString = ({ snake, food, size: [ x, y ] }, newFood) => {
     const square = '██';
     const board = [];
     for (let i = 0; i < x; i++) {
@@ -67,7 +71,7 @@ const renderBoard = (snake, food, x, y, newFood, gameOver) => {
         leadingColumns.map(b => b.join('')).join('\n'),
         BLC + starRow2.join('') + BRC
     ].join('\n');
-    return gameOver ? red(boardString) : boardString;
+    return boardString;
 };
 
 // size: board dimensions
@@ -144,52 +148,70 @@ const directions = (wasd, adjust) => {
     }
 }
 
-const isValid = ([head, ...snek], x, y) => {
+const isValid = ({ snake: [head, ...snek], size: [ x, y ]}) => {
     return head[0] > -1 && head[0] < x && head[1] > -1 && head[1] < y && !snek.find(s => s.join() === head.join())
 }
 
-// initial state
-let [snake, currentDirection] = initSnake(size, 20);
-let food = newFood(snake, ...size);
-
-// meta state for color flashing
-let newFoodFrames = 0;
-let lastFood = food;
-let lastSnake = snake;
-
 // init debug
 // console.log(snake, currentDirection);
-// renderBoard(
+// getBoardString(
 //     snake,
 //     food,
 //     ...size,
 // );
 // process.exit(0);
 
-const gameInterval = setInterval(() => {
-    [snake, food] = move(directions(currentDirection, invert), snake, food);
-    if (isValid(snake, ...size)) {
-        if (food.join() !== lastFood.join()) {
-            newFoodFrames = 4;
-        }
-        const boardString = renderBoard(
-            snake,
-            food,
-            ...size,
-            newFoodFrames-- > 0,
-        );
-        lastFood = food;
-        lastSnake = snake;
-        process.stdout.cursorTo(0, 0);
-        console.log(boardString);
-    } else {
-        gameOver(lastSnake, food, ...size);
-    }
-}, TICK)
+// initial state
+let [snake, currentDirection] = initSnake(size, 20);
+let food = newFood(snake, ...size);
+let paused = false;
 
-// flash the board on game over
-async function gameOver(snake, food, x, y) {
-    clearInterval(gameInterval);
+async function start() {
+
+    // meta state for color flashing
+    let newFoodFrames = 0;
+    let lastFood = food;
+    let lastSnake = snake;
+
+    await flashBoard(getBoardString({ snake, food, size }), cyan);
+
+    const gameInterval = setInterval(() => {
+        if (paused) {
+            return;
+        }
+        [snake, food] = move(directions(currentDirection, invert), snake, food);
+        if (isValid({ snake, size })) {
+            if (food.join() !== lastFood.join()) {
+                newFoodFrames = 4;
+            }
+            const boardString = getBoardString(
+                { snake, food, size },
+                newFoodFrames-- > 0,
+            );
+            lastFood = food;
+            lastSnake = snake;
+            process.stdout.cursorTo(0, 0);
+            console.log(boardString);
+        } else {
+            gameOver(lastSnake, food, size);
+        }
+    }, TICK);
+
+    // flash the board on game over
+    async function gameOver(snake, food, size) {
+        clearInterval(gameInterval);
+        const board = getBoardString(
+            { snake, food, size },
+            null,
+        )
+        await flashBoard(board, red);
+        console.log('game over.');
+        process.exit(0)
+    }
+}
+
+
+async function flashBoard(board, color) {
     const wait = () => {
         return new Promise((res) => {
             setTimeout(() => res(), 400);
@@ -197,18 +219,9 @@ async function gameOver(snake, food, x, y) {
     }
     for (let i = 0; i < 5; i++) {
         process.stdout.cursorTo(0, 0);
-        console.log(
-            renderBoard(
-                snake,
-                food,
-                x,
-                y,
-                null,
-                i % 2 === 0,
-            )
-        );
+        console.log(i % 2 === 0 ? color(board) : board);
         await wait();
     }
-    console.log('game over.');
-    process.exit(0)
 }
+
+start();
